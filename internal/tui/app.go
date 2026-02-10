@@ -5,12 +5,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BetaLixT/podsync/internal/config"
+	"github.com/BetaLixT/podsync/internal/db"
+	"github.com/BetaLixT/podsync/internal/gpodder"
+	"github.com/BetaLixT/podsync/internal/ipod"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/dcruza/podsync/internal/config"
-	"github.com/dcruza/podsync/internal/db"
-	"github.com/dcruza/podsync/internal/gpodder"
-	"github.com/dcruza/podsync/internal/ipod"
 )
 
 type syncResult struct {
@@ -28,18 +28,18 @@ type ipodCheckMsg struct {
 }
 
 type Model struct {
-	config       *config.Config
-	gpodder      *gpodder.Client
-	ipod         *ipod.IPod
-	db           *db.DB
-	episodes     *episodeList
+	config        *config.Config
+	gpodder       *gpodder.Client
+	ipod          *ipod.IPod
+	db            *db.DB
+	episodes      *episodeList
 	ipodConnected bool
-	freeSpace    uint64
-	width        int
-	height       int
-	statusMsg    string
-	statusStyle  lipgloss.Style
-	syncing      bool
+	freeSpace     uint64
+	width         int
+	height        int
+	statusMsg     string
+	statusStyle   lipgloss.Style
+	syncing       bool
 }
 
 func NewModel(cfg *config.Config) (*Model, error) {
@@ -320,7 +320,7 @@ func (m Model) renderWaiting() string {
 	}
 
 	content := "\n\n" + subtitleStyle.Render("    Waiting for iPod to be connected...") + "\n\n"
-	content += subtitleStyle.Render("    Mount path: " + m.config.IPodMount) + "\n\n"
+	content += subtitleStyle.Render("    Mount path: "+m.config.IPodMount) + "\n\n"
 
 	return boxStyle.Width(width - 2).Render(content)
 }

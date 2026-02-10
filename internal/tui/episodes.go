@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/dcruza/podsync/internal/db"
+	"github.com/BetaLixT/podsync/internal/db"
 )
 
 type episodeList struct {

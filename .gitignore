@@ -5,7 +5,7 @@
 *.so
 *.dylib
 server
-podsync
+./podsync
 
 # Data
 /data/

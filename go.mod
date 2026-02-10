@@ -1,4 +1,4 @@
-module github.com/dcruza/podsync
+module github.com/BetaLixT/podsync
 
 go 1.24.0
 
