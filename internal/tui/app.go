@@ -9,8 +9,17 @@ import (
 	"github.com/BetaLixT/podsync/internal/db"
 	"github.com/BetaLixT/podsync/internal/gpodder"
 	"github.com/BetaLixT/podsync/internal/ipod"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+)
+
+type ViewType int
+
+const (
+	WaitingForIPod = ViewType(iota)
+	Episodes
+	Options
 )
 
 type syncResult struct {
@@ -33,13 +42,18 @@ type Model struct {
 	ipod          *ipod.IPod
 	db            *db.DB
 	episodes      *episodeList
+	options       *optionsCtrl
 	ipodConnected bool
+	currentView   ViewType
 	freeSpace     uint64
 	width         int
 	height        int
 	statusMsg     string
 	statusStyle   lipgloss.Style
 	syncing       bool
+
+	insertMode bool
+	textInput  textinput.Model
 }
 
 func NewModel(cfg *config.Config) (*Model, error) {
@@ -53,8 +67,10 @@ func NewModel(cfg *config.Config) (*Model, error) {
 		gpodder:     gpodder.New(cfg.GPodderHome),
 		ipod:        ipod.New(cfg.IPodMount, cfg.PodcastFolder),
 		db:          localDB,
+		options:     newOptionsCtrl(*cfg),
 		episodes:    newEpisodeList(),
 		statusStyle: statusInfoStyle,
+		currentView: WaitingForIPod,
 	}
 
 	return m, nil
@@ -101,10 +117,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = "iPod connected"
 			m.statusStyle = statusSuccessStyle
 			cmds = append(cmds, m.loadEpisodes())
+			if m.currentView == WaitingForIPod {
+				m.currentView = Episodes
+			}
 		} else if !msg.connected && wasConnected {
 			m.statusMsg = "iPod disconnected"
 			m.statusStyle = statusErrorStyle
 			m.episodes.SetEpisodes(nil)
+			if m.currentView == Episodes {
+				m.currentView = WaitingForIPod
+			}
 		}
 
 		return m, tea.Batch(cmds...)
@@ -139,28 +161,73 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+
+	if m.insertMode {
+		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "enter":
+			switch m.currentView {
+			case Options:
+				m.options.InsertModeSave()
+			}
+			m.insertMode = false
+			return m, nil
+		case "esc":
+			// the currect way would be a stack maybe
+			switch m.currentView {
+			case Options:
+				m.options.InsertModeCancel()
+			}
+			m.insertMode = false
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.textInput, cmd = m.textInput.Update(msg)
+		m.textInput = m.options.InsertMode(m.textInput)
+		return m, cmd
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
+	case "o":
+		switch m.currentView {
+		case Episodes, WaitingForIPod:
+			m.currentView = Options
+		}
+		return m, nil
+
 	case "j", "down":
-		if m.ipodConnected && !m.syncing {
+		switch m.currentView {
+		case Episodes:
 			m.episodes.MoveDown()
+		case Options:
+			m.options.MoveDown()
 		}
 		return m, nil
 
 	case "k", "up":
-		if m.ipodConnected && !m.syncing {
+		switch m.currentView {
+		case Episodes:
 			m.episodes.MoveUp()
+		case Options:
+			m.options.MoveUp()
 		}
 		return m, nil
 
 	case "s":
-		if m.ipodConnected && !m.syncing {
-			m.syncing = true
-			m.statusMsg = "Syncing..."
-			m.statusStyle = syncingStyle
-			return m, m.syncEpisodes()
+		switch m.currentView {
+		case Episodes:
+			if m.ipodConnected && !m.syncing {
+				m.syncing = true
+				m.statusMsg = "Syncing..."
+				m.statusStyle = syncingStyle
+				return m, m.syncEpisodes()
+			}
+		case Options:
+			panic("TODO Save not implemented")
 		}
 		return m, nil
 
@@ -169,6 +236,28 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := m.episodes.Selected()
 			if selected != nil {
 				return m, m.markComplete(selected)
+			}
+		}
+		return m, nil
+
+	case "i":
+		switch m.currentView {
+		case Options:
+			m.insertMode = true
+			m.textInput = textinput.New()
+			m.textInput = m.options.InsertMode(m.textInput)
+			// m.textInput, cmd = m.textInput.Update(msg)
+			return m, nil
+		}
+		return m, nil
+	case "esc":
+		// the currect way would be a stack maybe
+		switch m.currentView {
+		case Options:
+			if m.ipodConnected {
+				m.currentView = Episodes
+			} else {
+				m.currentView = WaitingForIPod
 			}
 		}
 		return m, nil
@@ -265,12 +354,16 @@ func (m Model) View() string {
 	b.WriteString(header)
 	b.WriteString("\n")
 
-	if !m.ipodConnected {
+	switch m.currentView {
+	case WaitingForIPod:
 		waitingView := m.renderWaiting()
 		b.WriteString(waitingView)
-	} else {
+	case Episodes:
 		episodesView := m.renderEpisodes()
 		b.WriteString(episodesView)
+	case Options:
+		optionsView := m.renderOptions()
+		b.WriteString(optionsView)
 	}
 
 	b.WriteString("\n")
@@ -325,6 +418,16 @@ func (m Model) renderWaiting() string {
 	return boxStyle.Width(width - 2).Render(content)
 }
 
+func (m Model) renderOptions() string {
+	width := m.width
+	if width == 0 {
+		width = 60
+	}
+
+	content := m.options.View(width - 4)
+	return boxStyle.Width(width - 2).Render(content)
+}
+
 func (m Model) renderEpisodes() string {
 	width := m.width
 	if width == 0 {
@@ -336,19 +439,36 @@ func (m Model) renderEpisodes() string {
 }
 
 func (m Model) renderHelp() string {
-	if !m.ipodConnected {
-		return keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
+
+	if m.insertMode {
+		return keyStyle.Render("Enter") + helpStyle.Render(" confirm") + helpStyle.Render("  ") +
+			keyStyle.Render("Esc") + helpStyle.Render(" back") + helpStyle.Render("  ") +
+			keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
+	}
+	switch m.currentView {
+	case WaitingForIPod:
+		return keyStyle.Render("o") + helpStyle.Render(" options") + helpStyle.Render("  ") +
+			keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
+	case Episodes:
+		return keyStyle.Render("s") + helpStyle.Render(" sync") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("m") + helpStyle.Render("/") + keyStyle.Render("Enter") + helpStyle.Render(" mark complete") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("j") + helpStyle.Render("/") + keyStyle.Render("k") + helpStyle.Render("/") + keyStyle.Render("arrows") + helpStyle.Render(" navigate") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("o") + helpStyle.Render(" options") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
+	case Options:
+		return keyStyle.Render("j") + helpStyle.Render("/") + keyStyle.Render("k") + helpStyle.Render("/") + keyStyle.Render("arrows") + helpStyle.Render(" navigate") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("Esc") + helpStyle.Render(" back") + helpStyle.Render("  ") +
+			keyStyle.Render("i") + helpStyle.Render(" edit") + helpStyle.Render("  ") +
+			keyStyle.Render("s") + helpStyle.Render(" save") + helpStyle.Render("  ") +
+			keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
 	}
 
-	help := keyStyle.Render("s") + helpStyle.Render(" sync") +
-		helpStyle.Render("  ") +
-		keyStyle.Render("m") + helpStyle.Render("/") + keyStyle.Render("Enter") + helpStyle.Render(" mark complete") +
-		helpStyle.Render("  ") +
-		keyStyle.Render("j") + helpStyle.Render("/") + keyStyle.Render("k") + helpStyle.Render("/") + keyStyle.Render("arrows") + helpStyle.Render(" navigate") +
-		helpStyle.Render("  ") +
-		keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
-
-	return help
+	return keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
 }
 
 func Run(cfg *config.Config) error {
