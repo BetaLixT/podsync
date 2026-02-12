@@ -3,10 +3,12 @@ package tui
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/BetaLixT/podsync/internal/config"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type optionsCtrl struct {
@@ -16,8 +18,22 @@ type optionsCtrl struct {
 	cursor      int
 	height      int
 	offset      int
-	textInput   textinput.Model
-	insertMode  bool
+	input       *optionInput
+}
+
+type optionInput struct {
+	textInput textinput.Model
+	fieldKind reflect.Kind
+}
+
+func newOptionInput(
+	textInput textinput.Model,
+	fieldKind reflect.Kind,
+) *optionInput {
+	return &optionInput{
+		textInput,
+		fieldKind,
+	}
 }
 
 func newOptionsCtrl(cfg config.Config) *optionsCtrl {
@@ -56,27 +72,76 @@ func (o *optionsCtrl) MoveDown() {
 	}
 }
 
-func (o *optionsCtrl) InsertMode(ti textinput.Model) textinput.Model {
-	o.insertMode = true
-	o.textInput = ti
-	o.textInput.Placeholder = getOptionValue(o.configValue.Field(o.cursor))
-	o.textInput.Focus()
-	o.textInput.CharLimit = 156
-	o.textInput.Width = 20
-	return o.textInput
+func (o *optionsCtrl) InsertMode() textinput.Model {
+	field := o.configValue.Field(o.cursor)
+	fieldKind := field.Kind()
+
+	ti := textinput.New()
+	ti.Placeholder = getOptionValue(field)
+	ti.Focus()
+	ti.CharLimit = 156
+	ti.Width = 20
+
+	switch fieldKind {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		ti.Validate = func(s string) error {
+			if s == "" {
+				return nil
+			}
+			_, err := strconv.ParseInt(s, 10, 64)
+			return err
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		ti.Validate = func(s string) error {
+			if s == "" {
+				return nil
+			}
+			_, err := strconv.ParseUint(s, 10, 64)
+			return err
+		}
+	case reflect.Float32, reflect.Float64:
+		ti.Validate = func(s string) error {
+			if s == "" {
+				return nil
+			}
+			_, err := strconv.ParseFloat(s, 64)
+			return err
+		}
+	case reflect.Bool:
+		ti.Validate = func(s string) error {
+			if strings.HasPrefix("true", s) || strings.HasPrefix("false", s) {
+				return nil
+			}
+			return fmt.Errorf("not true/false ")
+		}
+	}
+
+	o.input = newOptionInput(ti, fieldKind)
+	return o.input.textInput
 }
 
-func (o *optionsCtrl) InsertModeUpdate(ti textinput.Model) textinput.Model {
-	o.textInput = ti
-	return o.textInput
+func (o *optionsCtrl) InsertModeUpdate(
+	msg tea.Msg,
+) (textinput.Model, tea.Cmd) {
+	// var cmd tea.Cmd
+	ti, cmd := o.input.textInput.Update(msg)
+
+	if ti.Validate(ti.Value()) != nil {
+		// TODO: alert the ommission
+		// println("noval")
+		return o.input.textInput, nil
+	}
+
+	o.input.textInput = ti
+	return o.input.textInput, cmd
 }
 
 func (o *optionsCtrl) InsertModeSave() {
-	o.insertMode = false
+	o.input = nil
 }
 
 func (o *optionsCtrl) InsertModeCancel() {
-	o.insertMode = false
+	o.input = nil
 }
 
 func (o *optionsCtrl) updateOffset() {
@@ -105,7 +170,7 @@ func (o *optionsCtrl) View(width int) string {
 	for i := o.offset; i < visibleEnd; i++ {
 		name := getOptionName(o.configType.Field(i))
 		value := getOptionValue(o.configValue.Field(i))
-		line := o.formatOptionLine(name, value, width, i == o.cursor, o.insertMode)
+		line := o.formatOptionLine(name, value, width, i == o.cursor, o.input != nil)
 		b.WriteString(line)
 		if i < visibleEnd-1 {
 			b.WriteString("\n")
@@ -132,7 +197,7 @@ func (o *optionsCtrl) formatOptionLine(name, value string, width int, selected, 
 	name = truncate(name, nameWidth)
 
 	if selected && insertMode {
-		value = o.textInput.View()
+		value = o.input.textInput.View()
 	} else {
 		value = truncate(value, valueWidth)
 	}

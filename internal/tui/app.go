@@ -9,7 +9,6 @@ import (
 	"github.com/BetaLixT/podsync/internal/db"
 	"github.com/BetaLixT/podsync/internal/gpodder"
 	"github.com/BetaLixT/podsync/internal/ipod"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -52,8 +51,9 @@ type Model struct {
 	statusStyle   lipgloss.Style
 	syncing       bool
 
+	// General input handling
 	insertMode bool
-	textInput  textinput.Model
+	// textInput  textinput.Model
 }
 
 func NewModel(cfg *config.Config) (*Model, error) {
@@ -182,9 +182,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.insertMode = false
 			return m, nil
 		}
-		var cmd tea.Cmd
-		m.textInput, cmd = m.textInput.Update(msg)
-		m.textInput = m.options.InsertMode(m.textInput)
+
+		_, cmd := m.options.InsertModeUpdate(msg)
 		return m, cmd
 	}
 
@@ -244,8 +243,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.currentView {
 		case Options:
 			m.insertMode = true
-			m.textInput = textinput.New()
-			m.textInput = m.options.InsertMode(m.textInput)
+
+			m.options.InsertMode()
 			// m.textInput, cmd = m.textInput.Update(msg)
 			return m, nil
 		}
