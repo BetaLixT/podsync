@@ -12,7 +12,7 @@ import (
 )
 
 type optionsCtrl struct {
-	config      *config.Config
+	config      interface{}
 	configType  reflect.Type
 	configValue reflect.Value
 	cursor      int
@@ -36,7 +36,7 @@ func newOptionInput(
 	}
 }
 
-func newOptionsCtrl(cfg config.Config) *optionsCtrl {
+func newOptionsCtrl[T any](cfg T) *optionsCtrl {
 	return &optionsCtrl{
 		config:      &cfg,
 		configType:  reflect.TypeOf(config.Config{}),
@@ -45,6 +45,14 @@ func newOptionsCtrl(cfg config.Config) *optionsCtrl {
 		height:      10,
 		offset:      0,
 	}
+}
+
+func getConfig[T any](optCtrl *optionsCtrl) (t T, err error) {
+	x, ok := optCtrl.config.(T)
+	if !ok {
+		return t, fmt.Errorf("failed to cast")
+	}
+	return x, nil
 }
 
 // func (o *optionsView) SetConfig(cfg *config.Config) {
@@ -114,6 +122,10 @@ func (o *optionsCtrl) InsertMode() textinput.Model {
 			}
 			return fmt.Errorf("not true/false ")
 		}
+	default:
+		ti.Validate = func(s string) error {
+			return nil
+		}
 	}
 
 	o.input = newOptionInput(ti, fieldKind)
@@ -136,8 +148,50 @@ func (o *optionsCtrl) InsertModeUpdate(
 	return o.input.textInput, cmd
 }
 
-func (o *optionsCtrl) InsertModeSave() {
-	o.input = nil
+func (o *optionsCtrl) InsertModeSave() error {
+
+	valStr := o.input.textInput.Value()
+	defer func() {
+		o.input = nil
+	}()
+
+	field := o.configValue.Field(o.cursor)
+
+	switch o.input.fieldKind {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		val, err := strconv.ParseInt(valStr, 10, field.Type().Bits())
+		if err != nil {
+			return err
+		}
+		field.SetInt(val)
+		return nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		val, err := strconv.ParseUint(valStr, 10, field.Type().Bits())
+		if err != nil {
+			return err
+		}
+		field.SetUint(val)
+		return nil
+	case reflect.Float32, reflect.Float64:
+		val, err := strconv.ParseFloat(valStr, field.Type().Bits())
+		if err != nil {
+			return err
+		}
+		field.SetFloat(val)
+		return nil
+	case reflect.Bool:
+		val, err := strconv.ParseBool(valStr)
+		if err != nil {
+			return err
+		}
+		field.SetBool(val)
+		return nil
+	case reflect.String:
+		field.SetString(valStr)
+		return nil
+	default:
+		return fmt.Errorf("unhandled type")
+	}
 }
 
 func (o *optionsCtrl) InsertModeCancel() {

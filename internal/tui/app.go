@@ -17,7 +17,8 @@ type ViewType int
 
 const (
 	WaitingForIPod = ViewType(iota)
-	Episodes
+	DeviceEpisodes
+	GpodderShows
 	Options
 )
 
@@ -67,7 +68,6 @@ func NewModel(cfg *config.Config) (*Model, error) {
 		gpodder:     gpodder.New(cfg.GPodderHome),
 		ipod:        ipod.New(cfg.IPodMount, cfg.PodcastFolder),
 		db:          localDB,
-		options:     newOptionsCtrl(*cfg),
 		episodes:    newEpisodeList(),
 		statusStyle: statusInfoStyle,
 		currentView: WaitingForIPod,
@@ -118,13 +118,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusStyle = statusSuccessStyle
 			cmds = append(cmds, m.loadEpisodes())
 			if m.currentView == WaitingForIPod {
-				m.currentView = Episodes
+				m.currentView = DeviceEpisodes
 			}
 		} else if !msg.connected && wasConnected {
 			m.statusMsg = "iPod disconnected"
 			m.statusStyle = statusErrorStyle
 			m.episodes.SetEpisodes(nil)
-			if m.currentView == Episodes {
+			if m.currentView == DeviceEpisodes {
 				m.currentView = WaitingForIPod
 			}
 		}
@@ -193,14 +193,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "o":
 		switch m.currentView {
-		case Episodes, WaitingForIPod:
+		case DeviceEpisodes, WaitingForIPod:
+			m.options = newOptionsCtrl(*m.config)
 			m.currentView = Options
 		}
 		return m, nil
 
 	case "j", "down":
 		switch m.currentView {
-		case Episodes:
+		case DeviceEpisodes:
 			m.episodes.MoveDown()
 		case Options:
 			m.options.MoveDown()
@@ -209,7 +210,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "k", "up":
 		switch m.currentView {
-		case Episodes:
+		case DeviceEpisodes:
 			m.episodes.MoveUp()
 		case Options:
 			m.options.MoveUp()
@@ -218,7 +219,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		switch m.currentView {
-		case Episodes:
+		case DeviceEpisodes:
 			if m.ipodConnected && !m.syncing {
 				m.syncing = true
 				m.statusMsg = "Syncing..."
@@ -226,7 +227,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.syncEpisodes()
 			}
 		case Options:
-			panic("TODO Save not implemented")
+			c, err := getConfig[*config.Config](m.options)
+			if err == nil {
+				err = c.Save()
+				if err == nil {
+					return m, tea.Quit
+				}
+			}
 		}
 		return m, nil
 
@@ -253,8 +260,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// the currect way would be a stack maybe
 		switch m.currentView {
 		case Options:
+			m.options = nil
 			if m.ipodConnected {
-				m.currentView = Episodes
+				m.currentView = DeviceEpisodes
 			} else {
 				m.currentView = WaitingForIPod
 			}
@@ -357,7 +365,7 @@ func (m Model) View() string {
 	case WaitingForIPod:
 		waitingView := m.renderWaiting()
 		b.WriteString(waitingView)
-	case Episodes:
+	case DeviceEpisodes:
 		episodesView := m.renderEpisodes()
 		b.WriteString(episodesView)
 	case Options:
@@ -448,7 +456,7 @@ func (m Model) renderHelp() string {
 	case WaitingForIPod:
 		return keyStyle.Render("o") + helpStyle.Render(" options") + helpStyle.Render("  ") +
 			keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
-	case Episodes:
+	case DeviceEpisodes:
 		return keyStyle.Render("s") + helpStyle.Render(" sync") +
 			helpStyle.Render("  ") +
 			keyStyle.Render("m") + helpStyle.Render("/") + keyStyle.Render("Enter") + helpStyle.Render(" mark complete") +
