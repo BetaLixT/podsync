@@ -2,18 +2,12 @@ package gpodder
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 
+	"github.com/BetaLixT/podsync"
 	_ "github.com/mattn/go-sqlite3"
 )
-
-type Episode struct {
-	ID               int64
-	PodcastTitle     string
-	Title            string
-	DownloadFilename string
-	TotalTime        int
-}
 
 type Client struct {
 	dbPath       string
@@ -27,11 +21,58 @@ func New(gpodderHome string) *Client {
 	}
 }
 
+func (c *Client) DatabaseExists() bool {
+	_, err := os.Stat(c.dbPath)
+	return err == nil
+}
+
+func (c *Client) DatabasePath() string {
+	return c.dbPath
+}
+
 func (c *Client) openDB() (*sql.DB, error) {
 	return sql.Open("sqlite3", c.dbPath+"?mode=ro")
 }
 
-func (c *Client) GetDownloadedUnplayedEpisodes() ([]Episode, error) {
+func (c *Client) GetPodcasts() ([]podsync.Podcast, error) {
+	db, err := c.openDB()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	query := `
+		SELECT
+			p.id,
+			p.title,
+			p.url,
+			COUNT(e.id) as episode_count
+		FROM podcast p
+		LEFT JOIN episode e ON e.podcast_id = p.id
+			AND e.state = 1 AND e.is_new = 1 AND e.download_filename IS NOT NULL
+		GROUP BY p.id
+		ORDER BY p.title
+	`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var podcasts []podsync.Podcast
+	for rows.Next() {
+		var p podsync.Podcast
+		if err := rows.Scan(&p.ID, &p.Title, &p.URL, &p.EpisodeCount); err != nil {
+			return nil, err
+		}
+		podcasts = append(podcasts, p)
+	}
+
+	return podcasts, rows.Err()
+}
+
+func (c *Client) GetEpisodesForPodcast(podcastID int64) ([]podsync.Episode, error) {
 	db, err := c.openDB()
 	if err != nil {
 		return nil, err
@@ -44,7 +85,48 @@ func (c *Client) GetDownloadedUnplayedEpisodes() ([]Episode, error) {
 			p.title as podcast_title,
 			e.title,
 			e.download_filename,
-			e.total_time
+			e.total_time,
+			e.published,
+			e.is_new
+		FROM episode e
+		JOIN podcast p ON e.podcast_id = p.id
+		WHERE e.podcast_id = ? AND e.state = 1 AND e.download_filename IS NOT NULL
+		ORDER BY e.published DESC
+	`
+
+	rows, err := db.Query(query, podcastID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var episodes []podsync.Episode
+	for rows.Next() {
+		var ep podsync.Episode
+		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime, &ep.Published, &ep.IsNew); err != nil {
+			return nil, err
+		}
+		episodes = append(episodes, ep)
+	}
+
+	return episodes, rows.Err()
+}
+
+func (c *Client) GetDownloadedUnplayedEpisodes() ([]podsync.Episode, error) {
+	db, err := c.openDB()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	query := `
+		SELECT
+			e.id,
+			p.title as podcast_title,
+			e.title,
+			e.download_filename,
+			e.total_time,
+			e.published
 		FROM episode e
 		JOIN podcast p ON e.podcast_id = p.id
 		WHERE e.state = 1 AND e.is_new = 1 AND e.download_filename IS NOT NULL
@@ -57,10 +139,10 @@ func (c *Client) GetDownloadedUnplayedEpisodes() ([]Episode, error) {
 	}
 	defer rows.Close()
 
-	var episodes []Episode
+	var episodes []podsync.Episode
 	for rows.Next() {
-		var ep Episode
-		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime); err != nil {
+		var ep podsync.Episode
+		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime, &ep.Published); err != nil {
 			return nil, err
 		}
 		episodes = append(episodes, ep)
@@ -69,14 +151,14 @@ func (c *Client) GetDownloadedUnplayedEpisodes() ([]Episode, error) {
 	return episodes, rows.Err()
 }
 
-func (c *Client) GetLatestEpisodesPerPodcast(limit int) ([]Episode, error) {
+func (c *Client) GetLatestEpisodesPerPodcast(limit int) ([]podsync.Episode, error) {
 	episodes, err := c.GetDownloadedUnplayedEpisodes()
 	if err != nil {
 		return nil, err
 	}
 
 	podcastCounts := make(map[string]int)
-	var filtered []Episode
+	var filtered []podsync.Episode
 
 	for _, ep := range episodes {
 		if podcastCounts[ep.PodcastTitle] < limit {

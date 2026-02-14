@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BetaLixT/podsync"
 	"github.com/BetaLixT/podsync/internal/config"
 	"github.com/BetaLixT/podsync/internal/db"
 	"github.com/BetaLixT/podsync/internal/gpodder"
@@ -19,6 +20,7 @@ const (
 	WaitingForIPod = ViewType(iota)
 	DeviceEpisodes
 	GpodderShows
+	GpodderShowEpisodes
 	Options
 )
 
@@ -31,6 +33,8 @@ type markCompleteResult struct {
 	err error
 }
 
+type showEpisodesMsg []podsync.Episode
+
 type ipodCheckMsg struct {
 	connected bool
 	freeSpace uint64
@@ -38,12 +42,15 @@ type ipodCheckMsg struct {
 
 type Model struct {
 	config        *config.Config
-	gpodder       *gpodder.Client
-	ipod          *ipod.IPod
+	gpodder       podsync.PodcastSource
+	ipod          podsync.Device
 	db            *db.DB
 	episodes      *episodeList
+	shows         *showList
+	showEpisodes  *showEpisodeList
 	options       *optionsCtrl
 	ipodConnected bool
+	gpodderFound  bool
 	currentView   ViewType
 	freeSpace     uint64
 	width         int
@@ -53,8 +60,8 @@ type Model struct {
 	syncing       bool
 
 	// General input handling
-	insertMode bool
-	// textInput  textinput.Model
+	insertMode  bool
+	confirmQuit bool
 }
 
 func NewModel(cfg *config.Config) (*Model, error) {
@@ -63,14 +70,18 @@ func NewModel(cfg *config.Config) (*Model, error) {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
+	gpodderClient := gpodder.New(cfg.GPodderHome)
+
 	m := &Model{
-		config:      cfg,
-		gpodder:     gpodder.New(cfg.GPodderHome),
-		ipod:        ipod.New(cfg.IPodMount, cfg.PodcastFolder),
-		db:          localDB,
-		episodes:    newEpisodeList(),
-		statusStyle: statusInfoStyle,
-		currentView: WaitingForIPod,
+		config:       cfg,
+		gpodder:      gpodderClient,
+		ipod:         ipod.New(cfg.IPodMount, cfg.PodcastFolder),
+		db:           localDB,
+		episodes:     newEpisodeList(),
+		shows:        newShowList(),
+		gpodderFound: gpodderClient.DatabaseExists(),
+		statusStyle:  statusInfoStyle,
+		currentView:  WaitingForIPod,
 	}
 
 	return m, nil
@@ -103,6 +114,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.episodes.SetHeight(msg.Height - 10)
+		m.shows.SetHeight(msg.Height - 10)
+		if m.showEpisodes != nil {
+			m.showEpisodes.SetHeight(msg.Height - 12)
+		}
 		return m, nil
 
 	case ipodCheckMsg:
@@ -140,6 +155,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Synced %d episodes", msg.synced)
 			m.statusStyle = statusSuccessStyle
 		}
+		if m.showEpisodes != nil {
+			m.showEpisodes.ClearMarked()
+		}
 		return m, m.loadEpisodes()
 
 	case markCompleteResult:
@@ -154,6 +172,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case []db.Episode:
 		m.episodes.SetEpisodes(msg)
+		return m, nil
+
+	case []podsync.Podcast:
+		m.shows.SetShows(msg)
+		return m, nil
+
+	case showEpisodesMsg:
+		if m.showEpisodes != nil {
+			m.showEpisodes.SetEpisodes([]podsync.Episode(msg))
+		}
 		return m, nil
 	}
 
@@ -170,30 +198,71 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch m.currentView {
 			case Options:
 				m.options.InsertModeSave()
+			case GpodderShowEpisodes:
+				m.showEpisodes.CommitFilter()
 			}
 			m.insertMode = false
 			return m, nil
 		case "esc":
-			// the currect way would be a stack maybe
 			switch m.currentView {
 			case Options:
 				m.options.InsertModeCancel()
+			case GpodderShowEpisodes:
+				m.showEpisodes.CancelFilter()
 			}
 			m.insertMode = false
 			return m, nil
 		}
 
-		_, cmd := m.options.InsertModeUpdate(msg)
-		return m, cmd
+		switch m.currentView {
+		case Options:
+			_, cmd := m.options.InsertModeUpdate(msg)
+			return m, cmd
+		case GpodderShowEpisodes:
+			cmd := m.showEpisodes.UpdateFilterInput(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
+	if m.confirmQuit {
+		switch msg.String() {
+		case "q", "y", "ctrl+c":
+			return m, tea.Quit
+		default:
+			m.confirmQuit = false
+			m.statusMsg = ""
+			return m, nil
+		}
 	}
 
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "ctrl+c":
 		return m, tea.Quit
+
+	case "q":
+		m.confirmQuit = true
+		m.statusMsg = "Press q again to quit"
+		m.statusStyle = syncingStyle
+		return m, nil
+
+	case "tab":
+		switch m.currentView {
+		case DeviceEpisodes, WaitingForIPod:
+			m.currentView = GpodderShows
+			return m, m.loadShows()
+		case GpodderShows:
+			if m.ipodConnected {
+				m.currentView = DeviceEpisodes
+			} else {
+				m.currentView = WaitingForIPod
+			}
+		}
+		return m, nil
 
 	case "o":
 		switch m.currentView {
-		case DeviceEpisodes, WaitingForIPod:
+		case DeviceEpisodes, WaitingForIPod, GpodderShows:
 			m.options = newOptionsCtrl(*m.config)
 			m.currentView = Options
 		}
@@ -203,6 +272,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.currentView {
 		case DeviceEpisodes:
 			m.episodes.MoveDown()
+		case GpodderShows:
+			m.shows.MoveDown()
+		case GpodderShowEpisodes:
+			m.showEpisodes.MoveDown()
 		case Options:
 			m.options.MoveDown()
 		}
@@ -212,6 +285,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.currentView {
 		case DeviceEpisodes:
 			m.episodes.MoveUp()
+		case GpodderShows:
+			m.shows.MoveUp()
+		case GpodderShowEpisodes:
+			m.showEpisodes.MoveUp()
 		case Options:
 			m.options.MoveUp()
 		}
@@ -226,6 +303,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusStyle = syncingStyle
 				return m, m.syncEpisodes()
 			}
+		case GpodderShowEpisodes:
+			m.showEpisodes.CycleSort()
 		case Options:
 			c, err := getConfig[*config.Config](m.options)
 			if err == nil {
@@ -237,8 +316,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "m", "enter":
-		if m.ipodConnected && !m.syncing {
+	case "m":
+		if m.currentView == DeviceEpisodes && m.ipodConnected && !m.syncing {
 			selected := m.episodes.Selected()
 			if selected != nil {
 				return m, m.markComplete(selected)
@@ -246,18 +325,67 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "enter":
+		switch m.currentView {
+		case DeviceEpisodes:
+			if m.ipodConnected && !m.syncing {
+				selected := m.episodes.Selected()
+				if selected != nil {
+					return m, m.markComplete(selected)
+				}
+			}
+		case GpodderShows:
+			selected := m.shows.Selected()
+			if selected != nil {
+				m.showEpisodes = newShowEpisodeList(selected.Title)
+				m.showEpisodes.SetHeight(m.height - 12)
+				m.currentView = GpodderShowEpisodes
+				return m, m.loadShowEpisodes(selected.ID)
+			}
+		}
+		return m, nil
+
+	case " ":
+		if m.currentView == GpodderShowEpisodes {
+			m.showEpisodes.ToggleMark()
+		}
+		return m, nil
+
+	case "S":
+		if m.currentView == GpodderShowEpisodes && m.ipodConnected && !m.syncing {
+			marked := m.showEpisodes.GetMarked()
+			if len(marked) > 0 {
+				m.syncing = true
+				m.statusMsg = "Syncing marked episodes..."
+				m.statusStyle = syncingStyle
+				return m, m.syncMarkedEpisodes(marked)
+			}
+		}
+		return m, nil
+
+	case "/":
+		if m.currentView == GpodderShowEpisodes {
+			m.showEpisodes.StartFilter()
+			m.insertMode = true
+		}
+		return m, nil
+
+	case "c":
+		if m.currentView == GpodderShowEpisodes {
+			m.showEpisodes.ClearFilter()
+		}
+		return m, nil
+
 	case "i":
 		switch m.currentView {
 		case Options:
 			m.insertMode = true
-
 			m.options.InsertMode()
-			// m.textInput, cmd = m.textInput.Update(msg)
 			return m, nil
 		}
 		return m, nil
+
 	case "esc":
-		// the currect way would be a stack maybe
 		switch m.currentView {
 		case Options:
 			m.options = nil
@@ -266,6 +394,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.currentView = WaitingForIPod
 			}
+		case GpodderShows:
+			if m.ipodConnected {
+				m.currentView = DeviceEpisodes
+			} else {
+				m.currentView = WaitingForIPod
+			}
+		case GpodderShowEpisodes:
+			m.showEpisodes = nil
+			m.currentView = GpodderShows
 		}
 		return m, nil
 	}
@@ -290,6 +427,64 @@ func (m *Model) loadEpisodes() tea.Cmd {
 		}
 
 		return valid
+	}
+}
+
+func (m *Model) loadShowEpisodes(podcastID int64) tea.Cmd {
+	return func() tea.Msg {
+		episodes, err := m.gpodder.GetEpisodesForPodcast(podcastID)
+		if err != nil {
+			return showEpisodesMsg([]podsync.Episode{})
+		}
+		return showEpisodesMsg(episodes)
+	}
+}
+
+func (m *Model) loadShows() tea.Cmd {
+	return func() tea.Msg {
+		podcasts, err := m.gpodder.GetPodcasts()
+		if err != nil {
+			return []podsync.Podcast{}
+		}
+		return podcasts
+	}
+}
+
+func (m *Model) syncMarkedEpisodes(episodes []podsync.Episode) tea.Cmd {
+	return func() tea.Msg {
+		var synced int
+		for _, ep := range episodes {
+			alreadySynced, err := m.db.IsEpisodeSynced(ep.ID)
+			if err != nil {
+				continue
+			}
+			if alreadySynced {
+				continue
+			}
+
+			srcPath := m.gpodder.GetFullPath(ep.DownloadFilename)
+			destPath, err := m.ipod.CopyFile(srcPath, ep.PodcastTitle, ep.DownloadFilename)
+			if err != nil {
+				continue
+			}
+
+			dbEpisode := db.Episode{
+				GPodderEpisodeID: ep.ID,
+				PodcastName:      ep.PodcastTitle,
+				EpisodeTitle:     ep.Title,
+				Filename:         ep.DownloadFilename,
+				IPodPath:         destPath,
+				Duration:         ep.TotalTime,
+			}
+
+			if err := m.db.AddEpisode(dbEpisode); err != nil {
+				continue
+			}
+
+			synced++
+		}
+
+		return syncResult{synced: synced}
 	}
 }
 
@@ -368,6 +563,11 @@ func (m Model) View() string {
 	case DeviceEpisodes:
 		episodesView := m.renderEpisodes()
 		b.WriteString(episodesView)
+	case GpodderShows:
+		showsView := m.renderShows()
+		b.WriteString(showsView)
+	case GpodderShowEpisodes:
+		b.WriteString(m.renderShowEpisodes())
 	case Options:
 		optionsView := m.renderOptions()
 		b.WriteString(optionsView)
@@ -387,8 +587,16 @@ func (m Model) renderHeader() string {
 		status = disconnectedStyle.Render("Waiting for iPod...")
 	}
 
+	var gpodderStatus string
+	if m.gpodderFound {
+		gpodderStatus = connectedStyle.Render("Found") + " (" + m.gpodder.DatabasePath() + ")"
+	} else {
+		gpodderStatus = disconnectedStyle.Render("Not found") + " (" + m.gpodder.DatabasePath() + ")"
+	}
+
 	title := titleStyle.Render("Podsync")
 	ipodStatus := "iPod: " + status
+	gpodderLine := "gPodder: " + gpodderStatus
 
 	var info string
 	if m.ipodConnected {
@@ -402,7 +610,7 @@ func (m Model) renderHeader() string {
 		width = 60
 	}
 
-	headerContent := title + "\n" + ipodStatus
+	headerContent := title + "\n" + ipodStatus + "\n" + gpodderLine
 	if info != "" {
 		headerContent += "\n" + subtitleStyle.Render(info)
 	}
@@ -435,6 +643,26 @@ func (m Model) renderOptions() string {
 	return boxStyle.Width(width - 2).Render(content)
 }
 
+func (m Model) renderShowEpisodes() string {
+	width := m.width
+	if width == 0 {
+		width = 60
+	}
+
+	content := m.showEpisodes.View(width - 4)
+	return boxStyle.Width(width - 2).Render(content)
+}
+
+func (m Model) renderShows() string {
+	width := m.width
+	if width == 0 {
+		width = 60
+	}
+
+	content := m.shows.View(width - 4)
+	return boxStyle.Width(width - 2).Render(content)
+}
+
 func (m Model) renderEpisodes() string {
 	width := m.width
 	if width == 0 {
@@ -463,7 +691,35 @@ func (m Model) renderHelp() string {
 			helpStyle.Render("  ") +
 			keyStyle.Render("j") + helpStyle.Render("/") + keyStyle.Render("k") + helpStyle.Render("/") + keyStyle.Render("arrows") + helpStyle.Render(" navigate") +
 			helpStyle.Render("  ") +
+			keyStyle.Render("Tab") + helpStyle.Render(" shows") +
+			helpStyle.Render("  ") +
 			keyStyle.Render("o") + helpStyle.Render(" options") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
+	case GpodderShows:
+		return keyStyle.Render("j") + helpStyle.Render("/") + keyStyle.Render("k") + helpStyle.Render("/") + keyStyle.Render("arrows") + helpStyle.Render(" navigate") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("Enter") + helpStyle.Render(" open") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("Tab") + helpStyle.Render("/") + keyStyle.Render("Esc") + helpStyle.Render(" back") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("o") + helpStyle.Render(" options") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
+	case GpodderShowEpisodes:
+		return keyStyle.Render("j") + helpStyle.Render("/") + keyStyle.Render("k") + helpStyle.Render("/") + keyStyle.Render("arrows") + helpStyle.Render(" navigate") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("Space") + helpStyle.Render(" mark") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("S") + helpStyle.Render(" sync marked") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("s") + helpStyle.Render(" sort") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("/") + helpStyle.Render(" filter") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("c") + helpStyle.Render(" clear") +
+			helpStyle.Render("  ") +
+			keyStyle.Render("Esc") + helpStyle.Render(" back") +
 			helpStyle.Render("  ") +
 			keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
 	case Options:
