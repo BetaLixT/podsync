@@ -145,6 +145,12 @@ func (s *showEpisodeList) GetMarked() []podsync.SourceEpisode {
 	return result
 }
 
+func (s *showEpisodeList) RestoreMarked(episodes []podsync.SourceEpisode) {
+	for _, ep := range episodes {
+		s.marked[ep.ID] = true
+	}
+}
+
 func (s *showEpisodeList) ClearMarked() {
 	s.marked = make(map[string]bool)
 }

@@ -31,7 +31,7 @@ func (d *DB) Init() error {
 	defer db.Close()
 
 	schema := `
-		jREATE TABLE IF NOT EXISTS episodes (
+		CREATE TABLE IF NOT EXISTS episodes (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			source_episode_id TEXT NOT NULL,
 			podcast_name TEXT NOT NULL,

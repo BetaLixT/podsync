@@ -72,7 +72,7 @@ func (c *Client) GetPodcasts() ([]podsync.SourcePodcast, error) {
 	return podcasts, rows.Err()
 }
 
-func (c *Client) GetEpisodesForPodcast(podcastID int64) ([]podsync.SourceEpisode, error) {
+func (c *Client) GetEpisodesForPodcast(podcastID string) ([]podsync.SourceEpisode, error) {
 	db, err := c.openDB()
 	if err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ func (c *Client) GetLatestEpisodesPerPodcast(limit int) ([]podsync.SourceEpisode
 	return filtered, nil
 }
 
-func (c *Client) MarkEpisodePlayed(episodeID int64) error {
+func (c *Client) MarkEpisodePlayed(episodeID string) error {
 	db, err := sql.Open("sqlite3", c.dbPath)
 	if err != nil {
 		return err

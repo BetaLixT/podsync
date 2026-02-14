@@ -17,7 +17,7 @@ type PodcastDevice interface {
 	Init() error
 	AddEpisode(ep Episode) error
 	RemoveEpisode(id int64) error
-	RemoveBySourceId(sourceId string)
+	RemoveBySourceId(sourceId string) error
 	GetAllEpisodes() ([]Episode, error)
 	GetEpisodeCount() (int, error)
 	IsEpisodeSynced(sourceId string) (bool, error)

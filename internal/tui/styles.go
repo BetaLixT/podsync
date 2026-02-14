@@ -68,4 +68,16 @@ var (
 	syncingStyle = lipgloss.NewStyle().
 			Foreground(warningColor).
 			Bold(true)
+
+	// Tab styles
+	activeTabStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("15")).
+			Background(primaryColor)
+
+	inactiveTabStyle = lipgloss.NewStyle().
+				Foreground(secondaryColor)
+
+	tabGapStyle = lipgloss.NewStyle().
+			Foreground(secondaryColor)
 )
