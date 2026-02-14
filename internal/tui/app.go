@@ -8,8 +8,6 @@ import (
 	"github.com/BetaLixT/podsync"
 	"github.com/BetaLixT/podsync/internal/config"
 	"github.com/BetaLixT/podsync/internal/db"
-	"github.com/BetaLixT/podsync/internal/gpodder"
-	"github.com/BetaLixT/podsync/internal/ipod"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -64,27 +62,18 @@ type Model struct {
 	confirmQuit bool
 }
 
-func NewModel(cfg *config.Config) (*Model, error) {
-	localDB := db.New(cfg.PodsyncDatabase())
-	if err := localDB.Init(); err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	}
-
-	gpodderClient := gpodder.New(cfg.GPodderHome)
-
-	m := &Model{
+func NewModel(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB *db.DB) *Model {
+	return &Model{
 		config:       cfg,
-		gpodder:      gpodderClient,
-		ipod:         ipod.New(cfg.IPodMount, cfg.PodcastFolder),
+		gpodder:      podcast,
+		ipod:         device,
 		db:           localDB,
 		episodes:     newEpisodeList(),
 		shows:        newShowList(),
-		gpodderFound: gpodderClient.DatabaseExists(),
+		gpodderFound: podcast.DatabaseExists(),
 		statusStyle:  statusInfoStyle,
 		currentView:  WaitingForIPod,
 	}
-
-	return m, nil
 }
 
 func (m Model) Init() tea.Cmd {
@@ -734,13 +723,9 @@ func (m Model) renderHelp() string {
 	return keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
 }
 
-func Run(cfg *config.Config) error {
-	model, err := NewModel(cfg)
-	if err != nil {
-		return err
-	}
-
+func Run(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB *db.DB) error {
+	model := NewModel(cfg, podcast, device, localDB)
 	p := tea.NewProgram(model, tea.WithAltScreen())
-	_, err = p.Run()
+	_, err := p.Run()
 	return err
 }
