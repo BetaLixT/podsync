@@ -131,6 +131,10 @@ func (s *showEpisodeList) MarkedCount() int {
 	return len(s.marked)
 }
 
+func (s *showEpisodeList) HasMarked() bool {
+	return len(s.marked) != 0
+}
+
 func (s *showEpisodeList) GetMarked() []podsync.Episode {
 	var result []podsync.Episode
 	for _, ep := range s.allEpisodes {

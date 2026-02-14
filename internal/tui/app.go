@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -40,23 +41,24 @@ type ipodCheckMsg struct {
 }
 
 type Model struct {
-	config        *config.Config
-	gpodder       podsync.PodcastSource
-	ipod          podsync.Device
-	db            *db.DB
-	episodes      *episodeList
-	shows         *showList
-	showEpisodes  *showEpisodeList
-	options       *optionsCtrl
-	ipodConnected bool
-	gpodderFound  bool
-	currentView   ViewType
-	freeSpace     uint64
-	width         int
-	height        int
-	statusMsg     string
-	statusStyle   lipgloss.Style
-	syncing       bool
+	config             *config.Config
+	gpodder            podsync.PodcastSource
+	ipod               podsync.Device
+	db                 *db.DB
+	episodes           *episodeList
+	markedShowEpisodes map[int64][]podsync.Episode
+	shows              *showList
+	showEpisodes       *showEpisodeList
+	options            *optionsCtrl
+	ipodConnected      bool
+	gpodderFound       bool
+	currentView        ViewType
+	freeSpace          uint64
+	width              int
+	height             int
+	statusMsg          string
+	statusStyle        lipgloss.Style
+	syncing            bool
 
 	// General input handling
 	insertMode  bool
@@ -65,15 +67,16 @@ type Model struct {
 
 func NewModel(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB *db.DB) *Model {
 	return &Model{
-		config:       cfg,
-		gpodder:      podcast,
-		ipod:         device,
-		db:           localDB,
-		episodes:     newEpisodeList(),
-		shows:        newShowList(),
-		gpodderFound: podcast.DatabaseExists(),
-		statusStyle:  statusInfoStyle,
-		currentView:  WaitingForIPod,
+		config:             cfg,
+		gpodder:            podcast,
+		ipod:               device,
+		db:                 localDB,
+		episodes:           newEpisodeList(),
+		markedShowEpisodes: map[int64][]podsync.Episode{},
+		shows:              newShowList(),
+		gpodderFound:       podcast.DatabaseExists(),
+		statusStyle:        statusInfoStyle,
+		currentView:        WaitingForIPod,
 	}
 }
 
@@ -287,10 +290,24 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		switch m.currentView {
 		case DeviceEpisodes:
+
 			if m.ipodConnected && !m.syncing {
+
+			}
+			if m.ipodConnected && !m.syncing {
+
 				m.syncing = true
-				m.statusMsg = "Syncing..."
+				marked := []podsync.Episode{}
+				for s := range m.markedShowEpisodes {
+					marked = append(marked, m.markedShowEpisodes[s]...)
+				}
 				m.statusStyle = syncingStyle
+
+				if len(marked) > 0 {
+					m.statusMsg = "Syncing marked episodes..."
+					return m, m.syncMarkedEpisodes(marked)
+				}
+				m.statusMsg = "Syncing..."
 				return m, m.syncEpisodes()
 			}
 		case GpodderShowEpisodes:
@@ -341,18 +358,6 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "S":
-		if m.currentView == GpodderShowEpisodes && m.ipodConnected && !m.syncing {
-			marked := m.showEpisodes.GetMarked()
-			if len(marked) > 0 {
-				m.syncing = true
-				m.statusMsg = "Syncing marked episodes..."
-				m.statusStyle = syncingStyle
-				return m, m.syncMarkedEpisodes(marked)
-			}
-		}
-		return m, nil
-
 	case "/":
 		if m.currentView == GpodderShowEpisodes {
 			m.showEpisodes.StartFilter()
@@ -391,6 +396,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.currentView = WaitingForIPod
 			}
 		case GpodderShowEpisodes:
+			selected := m.shows.Selected()
+
+			markedEpisodes := m.showEpisodes.GetMarked()
+			if len(markedEpisodes) != 0 {
+				m.markedShowEpisodes[selected.ID] = markedEpisodes
+			} else {
+				delete(m.markedShowEpisodes, selected.ID)
+			}
+
 			m.showEpisodes = nil
 			m.currentView = GpodderShows
 		}
@@ -446,16 +460,19 @@ func (m *Model) syncMarkedEpisodes(episodes []podsync.Episode) tea.Cmd {
 		for _, ep := range episodes {
 			alreadySynced, err := m.db.IsEpisodeSynced(ep.ID)
 			if err != nil {
+				log.Printf("failed to check if episode synced: %s", err.Error())
 				continue
 			}
 			if alreadySynced {
+				log.Printf("episode synced already")
 				continue
 			}
 
-			srcPath := m.gpodder.GetFullPath(ep.DownloadFilename)
+			srcPath := m.gpodder.GetFullPath(ep)
 			destFilename := formatEpisodeFilename(ep)
 			destPath, err := m.ipod.CopyFile(srcPath, ep.PodcastTitle, destFilename)
 			if err != nil {
+				log.Printf("copy failed for %s: %s", destFilename, err.Error())
 				continue
 			}
 
@@ -496,7 +513,7 @@ func (m *Model) syncEpisodes() tea.Cmd {
 				continue
 			}
 
-			srcPath := m.gpodder.GetFullPath(ep.DownloadFilename)
+			srcPath := m.gpodder.GetFullPath(ep)
 			destFilename := formatEpisodeFilename(ep)
 			destPath, err := m.ipod.CopyFile(srcPath, ep.PodcastTitle, destFilename)
 			if err != nil {
@@ -677,7 +694,11 @@ func (m Model) renderHelp() string {
 		return keyStyle.Render("o") + helpStyle.Render(" options") + helpStyle.Render("  ") +
 			keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
 	case DeviceEpisodes:
-		return keyStyle.Render("s") + helpStyle.Render(" sync") +
+		syncType := "sync"
+		if len(m.markedShowEpisodes) != 0 {
+			syncType = "sync marked"
+		}
+		return keyStyle.Render("s") + helpStyle.Render(" ") + helpStyle.Render(syncType) +
 			helpStyle.Render("  ") +
 			keyStyle.Render("m") + helpStyle.Render("/") + keyStyle.Render("Enter") + helpStyle.Render(" mark complete") +
 			helpStyle.Render("  ") +
@@ -702,8 +723,6 @@ func (m Model) renderHelp() string {
 		return keyStyle.Render("j") + helpStyle.Render("/") + keyStyle.Render("k") + helpStyle.Render("/") + keyStyle.Render("arrows") + helpStyle.Render(" navigate") +
 			helpStyle.Render("  ") +
 			keyStyle.Render("Space") + helpStyle.Render(" mark") +
-			helpStyle.Render("  ") +
-			keyStyle.Render("S") + helpStyle.Render(" sync marked") +
 			helpStyle.Render("  ") +
 			keyStyle.Render("s") + helpStyle.Render(" sort") +
 			helpStyle.Render("  ") +
@@ -750,7 +769,15 @@ func sanitizeFilename(name string) string {
 
 func Run(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB *db.DB) error {
 	model := NewModel(cfg, podcast, device, localDB)
+
+	f, err := tea.LogToFile("debug.log", "debug")
+	if err != nil {
+		fmt.Println("fatal:", err)
+		return err
+	}
+	defer f.Close()
+
 	p := tea.NewProgram(model, tea.WithAltScreen())
-	_, err := p.Run()
+	_, err = p.Run()
 	return err
 }

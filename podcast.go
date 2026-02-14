@@ -26,5 +26,5 @@ type PodcastSource interface {
 	GetDownloadedUnplayedEpisodes() ([]Episode, error)
 	GetLatestEpisodesPerPodcast(limit int) ([]Episode, error)
 	MarkEpisodePlayed(episodeID int64) error
-	GetFullPath(downloadFilename string) string
+	GetFullPath(Episode) string
 }

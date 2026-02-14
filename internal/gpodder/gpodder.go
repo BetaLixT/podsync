@@ -183,8 +183,8 @@ func (c *Client) MarkEpisodePlayed(episodeID int64) error {
 	return err
 }
 
-func (c *Client) GetFullPath(downloadFilename string) string {
-	return filepath.Join(c.downloadsDir, downloadFilename)
+func (c *Client) GetFullPath(ep podsync.Episode) string {
+	return filepath.Join(c.downloadsDir, ep.PodcastTitle, ep.DownloadFilename)
 }
 
 func (c *Client) FormatDuration(totalSeconds int) string {
