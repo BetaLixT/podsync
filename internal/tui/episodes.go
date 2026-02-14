@@ -3,11 +3,11 @@ package tui
 import (
 	"strings"
 
-	"github.com/BetaLixT/podsync/internal/db"
+	"github.com/BetaLixT/podsync"
 )
 
 type episodeList struct {
-	episodes []db.Episode
+	episodes []podsync.Episode
 	cursor   int
 	height   int
 	offset   int
@@ -15,14 +15,14 @@ type episodeList struct {
 
 func newEpisodeList() *episodeList {
 	return &episodeList{
-		episodes: []db.Episode{},
+		episodes: []podsync.Episode{},
 		cursor:   0,
 		height:   10,
 		offset:   0,
 	}
 }
 
-func (e *episodeList) SetEpisodes(episodes []db.Episode) {
+func (e *episodeList) SetEpisodes(episodes []podsync.Episode) {
 	e.episodes = episodes
 	if e.cursor >= len(e.episodes) {
 		e.cursor = max(0, len(e.episodes)-1)
@@ -57,7 +57,7 @@ func (e *episodeList) updateOffset() {
 	}
 }
 
-func (e *episodeList) Selected() *db.Episode {
+func (e *episodeList) Selected() *podsync.Episode {
 	if len(e.episodes) == 0 || e.cursor >= len(e.episodes) {
 		return nil
 	}
@@ -99,7 +99,7 @@ func (e *episodeList) View(width int) string {
 	return b.String()
 }
 
-func (e *episodeList) formatEpisodeLine(ep db.Episode, width int, selected bool) string {
+func (e *episodeList) formatEpisodeLine(ep podsync.Episode, width int, selected bool) string {
 	duration := formatDuration(ep.Duration)
 	durationWidth := len(duration) + 1
 

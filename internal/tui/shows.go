@@ -7,7 +7,7 @@ import (
 )
 
 type showList struct {
-	shows  []podsync.Podcast
+	shows  []podsync.SourcePodcast
 	cursor int
 	height int
 	offset int
@@ -15,14 +15,14 @@ type showList struct {
 
 func newShowList() *showList {
 	return &showList{
-		shows:  []podsync.Podcast{},
+		shows:  []podsync.SourcePodcast{},
 		cursor: 0,
 		height: 10,
 		offset: 0,
 	}
 }
 
-func (s *showList) SetShows(shows []podsync.Podcast) {
+func (s *showList) SetShows(shows []podsync.SourcePodcast) {
 	s.shows = shows
 	if s.cursor >= len(s.shows) {
 		s.cursor = max(0, len(s.shows)-1)
@@ -57,7 +57,7 @@ func (s *showList) updateOffset() {
 	}
 }
 
-func (s *showList) Selected() *podsync.Podcast {
+func (s *showList) Selected() *podsync.SourcePodcast {
 	if len(s.shows) == 0 || s.cursor >= len(s.shows) {
 		return nil
 	}
@@ -88,7 +88,7 @@ func (s *showList) View(width int) string {
 	return b.String()
 }
 
-func (s *showList) formatShowLine(show podsync.Podcast, width int, selected bool) string {
+func (s *showList) formatShowLine(show podsync.SourcePodcast, width int, selected bool) string {
 	prefix := "  "
 	if selected {
 		prefix = "> "

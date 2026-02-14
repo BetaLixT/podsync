@@ -1,30 +1,24 @@
 package podsync
 
-type Podcast struct {
-	ID           int64
-	Title        string
-	URL          string
-	EpisodeCount int
-}
+import "time"
 
 type Episode struct {
-	ID               int64
-	PodcastTitle     string
-	Title            string
-	DownloadFilename string
-	TotalTime        int
-	Published        int64
-	IsNew            bool
-	EpisodeNumber    int
+	ID              int64
+	SourcePodcastId string
+	PodcastName     string
+	EpisodeTitle    string
+	Filename        string
+	IPodPath        string
+	Duration        int
+	SyncedAt        time.Time
 }
 
-type PodcastSource interface {
-	DatabaseExists() bool
-	DatabasePath() string
-	GetPodcasts() ([]Podcast, error)
-	GetEpisodesForPodcast(podcastID int64) ([]Episode, error)
-	GetDownloadedUnplayedEpisodes() ([]Episode, error)
-	GetLatestEpisodesPerPodcast(limit int) ([]Episode, error)
-	MarkEpisodePlayed(episodeID int64) error
-	GetFullPath(Episode) string
+type PodcastDevice interface {
+	Init() error
+	AddEpisode(ep Episode) error
+	RemoveEpisode(id int64) error
+	RemoveBySourceId(sourceId string)
+	GetAllEpisodes() ([]Episode, error)
+	GetEpisodeCount() (int, error)
+	IsEpisodeSynced(sourceId string) (bool, error)
 }

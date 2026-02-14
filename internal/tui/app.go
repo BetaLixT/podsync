@@ -9,7 +9,7 @@ import (
 
 	"github.com/BetaLixT/podsync"
 	"github.com/BetaLixT/podsync/internal/config"
-	"github.com/BetaLixT/podsync/internal/db"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -33,7 +33,7 @@ type markCompleteResult struct {
 	err error
 }
 
-type showEpisodesMsg []podsync.Episode
+type showEpisodesMsg []podsync.SourceEpisode
 
 type ipodCheckMsg struct {
 	connected bool
@@ -44,9 +44,9 @@ type Model struct {
 	config             *config.Config
 	gpodder            podsync.PodcastSource
 	ipod               podsync.Device
-	db                 *db.DB
+	db                 podsync.PodcastDevice
 	episodes           *episodeList
-	markedShowEpisodes map[int64][]podsync.Episode
+	markedShowEpisodes map[string][]podsync.SourceEpisode
 	shows              *showList
 	showEpisodes       *showEpisodeList
 	options            *optionsCtrl
@@ -65,14 +65,14 @@ type Model struct {
 	confirmQuit bool
 }
 
-func NewModel(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB *db.DB) *Model {
+func NewModel(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB podsync.PodcastDevice) *Model {
 	return &Model{
 		config:             cfg,
 		gpodder:            podcast,
 		ipod:               device,
 		db:                 localDB,
 		episodes:           newEpisodeList(),
-		markedShowEpisodes: map[int64][]podsync.Episode{},
+		markedShowEpisodes: map[string][]podsync.SourceEpisode{},
 		shows:              newShowList(),
 		gpodderFound:       podcast.DatabaseExists(),
 		statusStyle:        statusInfoStyle,
@@ -163,17 +163,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadEpisodes()
 
-	case []db.Episode:
+	case []podsync.Episode:
 		m.episodes.SetEpisodes(msg)
 		return m, nil
 
-	case []podsync.Podcast:
+	case []podsync.SourcePodcast:
 		m.shows.SetShows(msg)
 		return m, nil
 
 	case showEpisodesMsg:
 		if m.showEpisodes != nil {
-			m.showEpisodes.SetEpisodes([]podsync.Episode(msg))
+			m.showEpisodes.SetEpisodes([]podsync.SourceEpisode(msg))
 		}
 		return m, nil
 	}
@@ -297,7 +297,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.ipodConnected && !m.syncing {
 
 				m.syncing = true
-				marked := []podsync.Episode{}
+				marked := []podsync.SourceEpisode{}
 				for s := range m.markedShowEpisodes {
 					marked = append(marked, m.markedShowEpisodes[s]...)
 				}
@@ -418,10 +418,10 @@ func (m *Model) loadEpisodes() tea.Cmd {
 	return func() tea.Msg {
 		episodes, err := m.db.GetAllEpisodes()
 		if err != nil {
-			return []db.Episode{}
+			return []podsync.Episode{}
 		}
 
-		var valid []db.Episode
+		var valid []podsync.Episode
 		for _, ep := range episodes {
 			if m.ipod.FileExists(ep.IPodPath) {
 				valid = append(valid, ep)
@@ -434,11 +434,11 @@ func (m *Model) loadEpisodes() tea.Cmd {
 	}
 }
 
-func (m *Model) loadShowEpisodes(podcastID int64) tea.Cmd {
+func (m *Model) loadShowEpisodes(podcastID string) tea.Cmd {
 	return func() tea.Msg {
 		episodes, err := m.gpodder.GetEpisodesForPodcast(podcastID)
 		if err != nil {
-			return showEpisodesMsg([]podsync.Episode{})
+			return showEpisodesMsg([]podsync.SourceEpisode{})
 		}
 		return showEpisodesMsg(episodes)
 	}
@@ -448,13 +448,13 @@ func (m *Model) loadShows() tea.Cmd {
 	return func() tea.Msg {
 		podcasts, err := m.gpodder.GetPodcasts()
 		if err != nil {
-			return []podsync.Podcast{}
+			return []podsync.SourcePodcast{}
 		}
 		return podcasts
 	}
 }
 
-func (m *Model) syncMarkedEpisodes(episodes []podsync.Episode) tea.Cmd {
+func (m *Model) syncMarkedEpisodes(episodes []podsync.SourceEpisode) tea.Cmd {
 	return func() tea.Msg {
 		var synced int
 		for _, ep := range episodes {
@@ -476,13 +476,13 @@ func (m *Model) syncMarkedEpisodes(episodes []podsync.Episode) tea.Cmd {
 				continue
 			}
 
-			dbEpisode := db.Episode{
-				GPodderEpisodeID: ep.ID,
-				PodcastName:      ep.PodcastTitle,
-				EpisodeTitle:     ep.Title,
-				Filename:         destFilename,
-				IPodPath:         destPath,
-				Duration:         ep.TotalTime,
+			dbEpisode := podsync.Episode{
+				SourcePodcastId: ep.ID,
+				PodcastName:     ep.PodcastTitle,
+				EpisodeTitle:    ep.Title,
+				Filename:        destFilename,
+				IPodPath:        destPath,
+				Duration:        ep.TotalTime,
 			}
 
 			if err := m.db.AddEpisode(dbEpisode); err != nil {
@@ -520,13 +520,13 @@ func (m *Model) syncEpisodes() tea.Cmd {
 				continue
 			}
 
-			dbEpisode := db.Episode{
-				GPodderEpisodeID: ep.ID,
-				PodcastName:      ep.PodcastTitle,
-				EpisodeTitle:     ep.Title,
-				Filename:         destFilename,
-				IPodPath:         destPath,
-				Duration:         ep.TotalTime,
+			dbEpisode := podsync.Episode{
+				SourcePodcastId: ep.ID,
+				PodcastName:     ep.PodcastTitle,
+				EpisodeTitle:    ep.Title,
+				Filename:        destFilename,
+				IPodPath:        destPath,
+				Duration:        ep.TotalTime,
 			}
 
 			if err := m.db.AddEpisode(dbEpisode); err != nil {
@@ -540,13 +540,13 @@ func (m *Model) syncEpisodes() tea.Cmd {
 	}
 }
 
-func (m *Model) markComplete(ep *db.Episode) tea.Cmd {
+func (m *Model) markComplete(ep *podsync.Episode) tea.Cmd {
 	return func() tea.Msg {
 		if err := m.ipod.RemoveFile(ep.IPodPath); err != nil {
 			return markCompleteResult{err: err}
 		}
 
-		if err := m.gpodder.MarkEpisodePlayed(ep.GPodderEpisodeID); err != nil {
+		if err := m.gpodder.MarkEpisodePlayed(ep.SourcePodcastId); err != nil {
 			return markCompleteResult{err: fmt.Errorf("failed to mark as played in gPodder: %w", err)}
 		}
 
@@ -745,7 +745,7 @@ func (m Model) renderHelp() string {
 	return keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
 }
 
-func formatEpisodeFilename(ep podsync.Episode) string {
+func formatEpisodeFilename(ep podsync.SourceEpisode) string {
 	ext := filepath.Ext(ep.DownloadFilename)
 	published := time.Unix(ep.Published, 0)
 	date := fmt.Sprintf("%02d-%02d", published.Day(), published.Month())
@@ -767,7 +767,7 @@ func sanitizeFilename(name string) string {
 	return string(result)
 }
 
-func Run(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB *db.DB) error {
+func Run(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB podsync.PodcastDevice) error {
 	model := NewModel(cfg, podcast, device, localDB)
 
 	f, err := tea.LogToFile("debug.log", "debug")

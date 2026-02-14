@@ -37,9 +37,9 @@ func (s showEpisodeSortOrder) Next() showEpisodeSortOrder {
 
 type showEpisodeList struct {
 	podcastTitle string
-	allEpisodes  []podsync.Episode
-	episodes     []podsync.Episode
-	marked       map[int64]bool
+	allEpisodes  []podsync.SourceEpisode
+	episodes     []podsync.SourceEpisode
+	marked       map[string]bool
 	cursor       int
 	height       int
 	offset       int
@@ -57,9 +57,9 @@ func newShowEpisodeList(podcastTitle string) *showEpisodeList {
 
 	return &showEpisodeList{
 		podcastTitle: podcastTitle,
-		allEpisodes:  []podsync.Episode{},
-		episodes:     []podsync.Episode{},
-		marked:       make(map[int64]bool),
+		allEpisodes:  []podsync.SourceEpisode{},
+		episodes:     []podsync.SourceEpisode{},
+		marked:       make(map[string]bool),
 		cursor:       0,
 		height:       10,
 		offset:       0,
@@ -68,7 +68,7 @@ func newShowEpisodeList(podcastTitle string) *showEpisodeList {
 	}
 }
 
-func (s *showEpisodeList) SetEpisodes(episodes []podsync.Episode) {
+func (s *showEpisodeList) SetEpisodes(episodes []podsync.SourceEpisode) {
 	s.allEpisodes = episodes
 	s.applyFilterAndSort()
 }
@@ -100,7 +100,7 @@ func (s *showEpisodeList) updateOffset() {
 	}
 }
 
-func (s *showEpisodeList) Selected() *podsync.Episode {
+func (s *showEpisodeList) Selected() *podsync.SourceEpisode {
 	if len(s.episodes) == 0 || s.cursor >= len(s.episodes) {
 		return nil
 	}
@@ -135,8 +135,8 @@ func (s *showEpisodeList) HasMarked() bool {
 	return len(s.marked) != 0
 }
 
-func (s *showEpisodeList) GetMarked() []podsync.Episode {
-	var result []podsync.Episode
+func (s *showEpisodeList) GetMarked() []podsync.SourceEpisode {
+	var result []podsync.SourceEpisode
 	for _, ep := range s.allEpisodes {
 		if s.marked[ep.ID] {
 			result = append(result, ep)
@@ -146,7 +146,7 @@ func (s *showEpisodeList) GetMarked() []podsync.Episode {
 }
 
 func (s *showEpisodeList) ClearMarked() {
-	s.marked = make(map[int64]bool)
+	s.marked = make(map[string]bool)
 }
 
 func (s *showEpisodeList) CycleSort() {
@@ -188,7 +188,7 @@ func (s *showEpisodeList) UpdateFilterInput(msg tea.Msg) tea.Cmd {
 }
 
 func (s *showEpisodeList) applyFilterAndSort() {
-	var filtered []podsync.Episode
+	var filtered []podsync.SourceEpisode
 	filterLower := strings.ToLower(s.filterText)
 
 	for _, ep := range s.allEpisodes {
@@ -262,7 +262,7 @@ func (s *showEpisodeList) View(width int) string {
 	return b.String()
 }
 
-func (s *showEpisodeList) formatLine(ep podsync.Episode, width int, selected bool) string {
+func (s *showEpisodeList) formatLine(ep podsync.SourceEpisode, width int, selected bool) string {
 	duration := formatDuration(ep.TotalTime)
 	durationWidth := len(duration) + 1
 

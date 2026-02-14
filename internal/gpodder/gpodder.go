@@ -34,7 +34,7 @@ func (c *Client) openDB() (*sql.DB, error) {
 	return sql.Open("sqlite3", c.dbPath+"?mode=ro")
 }
 
-func (c *Client) GetPodcasts() ([]podsync.Podcast, error) {
+func (c *Client) GetPodcasts() ([]podsync.SourcePodcast, error) {
 	db, err := c.openDB()
 	if err != nil {
 		return nil, err
@@ -60,9 +60,9 @@ func (c *Client) GetPodcasts() ([]podsync.Podcast, error) {
 	}
 	defer rows.Close()
 
-	var podcasts []podsync.Podcast
+	var podcasts []podsync.SourcePodcast
 	for rows.Next() {
-		var p podsync.Podcast
+		var p podsync.SourcePodcast
 		if err := rows.Scan(&p.ID, &p.Title, &p.URL, &p.EpisodeCount); err != nil {
 			return nil, err
 		}
@@ -72,7 +72,7 @@ func (c *Client) GetPodcasts() ([]podsync.Podcast, error) {
 	return podcasts, rows.Err()
 }
 
-func (c *Client) GetEpisodesForPodcast(podcastID int64) ([]podsync.Episode, error) {
+func (c *Client) GetEpisodesForPodcast(podcastID int64) ([]podsync.SourceEpisode, error) {
 	db, err := c.openDB()
 	if err != nil {
 		return nil, err
@@ -101,9 +101,9 @@ func (c *Client) GetEpisodesForPodcast(podcastID int64) ([]podsync.Episode, erro
 	}
 	defer rows.Close()
 
-	var episodes []podsync.Episode
+	var episodes []podsync.SourceEpisode
 	for rows.Next() {
-		var ep podsync.Episode
+		var ep podsync.SourceEpisode
 		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime, &ep.Published, &ep.IsNew, &ep.EpisodeNumber); err != nil {
 			return nil, err
 		}
@@ -113,7 +113,7 @@ func (c *Client) GetEpisodesForPodcast(podcastID int64) ([]podsync.Episode, erro
 	return episodes, rows.Err()
 }
 
-func (c *Client) GetDownloadedUnplayedEpisodes() ([]podsync.Episode, error) {
+func (c *Client) GetDownloadedUnplayedEpisodes() ([]podsync.SourceEpisode, error) {
 	db, err := c.openDB()
 	if err != nil {
 		return nil, err
@@ -141,9 +141,9 @@ func (c *Client) GetDownloadedUnplayedEpisodes() ([]podsync.Episode, error) {
 	}
 	defer rows.Close()
 
-	var episodes []podsync.Episode
+	var episodes []podsync.SourceEpisode
 	for rows.Next() {
-		var ep podsync.Episode
+		var ep podsync.SourceEpisode
 		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime, &ep.Published, &ep.EpisodeNumber); err != nil {
 			return nil, err
 		}
@@ -153,14 +153,14 @@ func (c *Client) GetDownloadedUnplayedEpisodes() ([]podsync.Episode, error) {
 	return episodes, rows.Err()
 }
 
-func (c *Client) GetLatestEpisodesPerPodcast(limit int) ([]podsync.Episode, error) {
+func (c *Client) GetLatestEpisodesPerPodcast(limit int) ([]podsync.SourceEpisode, error) {
 	episodes, err := c.GetDownloadedUnplayedEpisodes()
 	if err != nil {
 		return nil, err
 	}
 
 	podcastCounts := make(map[string]int)
-	var filtered []podsync.Episode
+	var filtered []podsync.SourceEpisode
 
 	for _, ep := range episodes {
 		if podcastCounts[ep.PodcastTitle] < limit {
@@ -183,7 +183,7 @@ func (c *Client) MarkEpisodePlayed(episodeID int64) error {
 	return err
 }
 
-func (c *Client) GetFullPath(ep podsync.Episode) string {
+func (c *Client) GetFullPath(ep podsync.SourceEpisode) string {
 	return filepath.Join(c.downloadsDir, ep.PodcastTitle, ep.DownloadFilename)
 }
 
