@@ -74,10 +74,11 @@ func (d *DeviceComponent) KeyMaps() []KeyMap {
 	return []KeyMap{
 		{
 			Keys:        []string{"s"},
-			Description: "sync",
+			Description: d.syncDescription(),
 			Condition:   func() bool { return d.ipodConnected && !d.syncing },
 			Handle: func(km tea.KeyMsg) tea.Cmd {
 				d.syncing = true
+				d.pushStatusMsg("Syncing...", "syncing")
 
 				marked := d.getMarkedEpisodes()
 				if len(marked) > 0 {
@@ -152,14 +153,19 @@ func (d *DeviceComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case syncResult:
 		d.syncing = false
-		d.pushStatus()
 		if msg.err != nil {
+			d.pushStatusMsg(fmt.Sprintf("Sync failed: %v", msg.err), "error")
 			return d, nil
 		}
+		d.pushStatusMsg(fmt.Sprintf("Synced %d episodes", msg.synced), "success")
 		return d, d.loadEpisodes()
 
 	case markCompleteResult:
-		d.pushStatus()
+		if msg.err != nil {
+			d.pushStatusMsg(fmt.Sprintf("Error: %v", msg.err), "error")
+		} else {
+			d.pushStatusMsg("Episode marked complete", "success")
+		}
 		return d, d.loadEpisodes()
 
 	case []podsync.Episode:
@@ -190,6 +196,18 @@ func (d *DeviceComponent) View() string {
 	return boxStyle.Width(width - 2).Render(content)
 }
 
+func (d *DeviceComponent) syncDescription() string {
+	marked := d.getMarkedEpisodes()
+	total := 0
+	for _, eps := range marked {
+		total += len(eps)
+	}
+	if total > 0 {
+		return fmt.Sprintf("sync (%d marked)", total)
+	}
+	return "sync"
+}
+
 func (d *DeviceComponent) pushStatus() {
 	if d.onStatusUpdate == nil {
 		return
@@ -200,6 +218,21 @@ func (d *DeviceComponent) pushStatus() {
 		FreeSpace:       d.freeSpace,
 		FreeSpaceStr:    d.device.FormatBytes(d.freeSpace),
 		EpisodeCount:    d.episodes.Count(),
+	})
+}
+
+func (d *DeviceComponent) pushStatusMsg(msg string, style string) {
+	if d.onStatusUpdate == nil {
+		return
+	}
+	d.onStatusUpdate(StatusData{
+		DeviceConnected: d.ipodConnected,
+		DevicePath:      d.config.IPodMount,
+		FreeSpace:       d.freeSpace,
+		FreeSpaceStr:    d.device.FormatBytes(d.freeSpace),
+		EpisodeCount:    d.episodes.Count(),
+		StatusMsg:       msg,
+		StatusStyle:     style,
 	})
 }
 

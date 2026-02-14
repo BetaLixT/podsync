@@ -216,5 +216,7 @@ func (a *AppComponent) pushStatus() {
 		EpisodeCount:    a.deviceStatus.EpisodeCount,
 		SourceFound:     a.sourceStatus.SourceFound,
 		SourcePath:      a.sourceStatus.SourcePath,
+		StatusMsg:       a.deviceStatus.StatusMsg,
+		StatusStyle:     a.deviceStatus.StatusStyle,
 	})
 }

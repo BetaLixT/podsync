@@ -45,4 +45,6 @@ type StatusData struct {
 	SourceFound     bool
 	SourceName      string
 	SourcePath      string
+	StatusMsg       string
+	StatusStyle     string // "info", "success", "error", "syncing"
 }

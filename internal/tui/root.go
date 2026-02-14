@@ -273,8 +273,23 @@ func (r *RootComponent) renderHeader() string {
 	if info != "" {
 		headerContent += "\n" + subtitleStyle.Render(info)
 	}
-	if r.statusMsg != "" {
-		headerContent += "\n" + r.statusStyle.Render(r.statusMsg)
+	statusMsg := r.statusMsg
+	statusStyle := r.statusStyle
+	if r.statusData.StatusMsg != "" {
+		statusMsg = r.statusData.StatusMsg
+		switch r.statusData.StatusStyle {
+		case "success":
+			statusStyle = statusSuccessStyle
+		case "error":
+			statusStyle = statusErrorStyle
+		case "syncing":
+			statusStyle = syncingStyle
+		default:
+			statusStyle = statusInfoStyle
+		}
+	}
+	if statusMsg != "" {
+		headerContent += "\n" + statusStyle.Render(statusMsg)
 	}
 
 	return boxStyle.Width(width - 2).Render(headerContent)
