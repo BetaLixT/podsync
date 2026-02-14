@@ -36,6 +36,7 @@ type DeviceComponent struct {
 	syncing           bool
 	getMarkedEpisodes func() map[string][]podsync.SourceEpisode
 	onStatusUpdate    func(StatusData)
+	lgr               podsync.Logger
 }
 
 func NewDeviceComponent(
@@ -45,6 +46,7 @@ func NewDeviceComponent(
 	db podsync.PodcastDevice,
 	getMarkedEpisodes func() map[string][]podsync.SourceEpisode,
 	onStatusUpdate func(StatusData),
+	lgr podsync.Logger,
 ) *DeviceComponent {
 	return &DeviceComponent{
 		0,                 // width
@@ -59,6 +61,7 @@ func NewDeviceComponent(
 		false,             // syncing
 		getMarkedEpisodes, // getMarkedEpisodes
 		onStatusUpdate,    // onStatusUpdate
+		lgr,               // lgr
 	}
 }
 
@@ -79,9 +82,11 @@ func (d *DeviceComponent) KeyMaps() []KeyMap {
 			Handle: func(km tea.KeyMsg) tea.Cmd {
 				d.syncing = true
 				d.pushStatusMsg("Syncing...", "syncing")
+				d.lgr.Inf("Syncing...")
 
 				marked := d.getMarkedEpisodes()
 				if len(marked) > 0 {
+					d.lgr.Inf("Syncing %d marked episodes...", len(marked))
 					episodes := []podsync.SourceEpisode{}
 					for _, eps := range marked {
 						episodes = append(episodes, eps...)
@@ -271,16 +276,20 @@ func (d *DeviceComponent) syncMarkedEpisodes(episodes []podsync.SourceEpisode) t
 	return func() tea.Msg {
 		var synced int
 		for _, ep := range episodes {
+			d.lgr.Inf("Syncing to device...")
 			alreadySynced, err := d.db.IsEpisodeSynced(ep.ID)
 			if err != nil {
+				d.lgr.Err("failed to check if episode is synced")
 				continue
 			}
 			if alreadySynced {
+				d.lgr.Inf("episode already synced")
 				continue
 			}
 
 			srcPath := d.source.GetFullPath(ep)
 			destFilename := formatEpisodeFilename(ep)
+			d.lgr.Inf("copying file from %s to %s", srcPath, destFilename)
 			destPath, err := d.device.CopyFile(srcPath, ep.PodcastTitle, destFilename)
 			if err != nil {
 				continue

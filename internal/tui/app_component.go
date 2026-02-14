@@ -22,6 +22,7 @@ type AppComponent struct {
 	onStatusUpdate func(StatusData)
 	deviceStatus   StatusData
 	sourceStatus   StatusData
+	lgr            podsync.Logger
 }
 
 func NewAppComponent(
@@ -30,6 +31,7 @@ func NewAppComponent(
 	device podsync.Device,
 	db podsync.PodcastDevice,
 	onStatusUpdate func(StatusData),
+	lgr podsync.Logger,
 ) *AppComponent {
 	app := &AppComponent{
 		0,                                        // width
@@ -40,27 +42,34 @@ func NewAppComponent(
 		onStatusUpdate,                           // onStatusUpdate
 		StatusData{},                             // deviceStatus
 		StatusData{},                             // sourceStatus
+		lgr,                                      // logs
 	}
 
-	source := NewSourceComponent(
+	sourceComp := NewSourceComponent(
 		podcast,
 		app.handleMarkedUpdate,
 		app.getMarkedForPodcast,
 		app.handleSourceStatus,
 	)
 
-	device_ := NewDeviceComponent(
+	deviceComp := NewDeviceComponent(
 		cfg,
 		device,
 		podcast,
 		db,
 		app.getMarkedEpisodes,
 		app.handleDeviceStatus,
+		app.lgr,
+	)
+
+	logComp := NewLogComponent(
+		app.lgr,
 	)
 
 	app.tabs = []appTab{
-		{"Source", source},
-		{"Device", device_},
+		{"Source", sourceComp},
+		{"Device", deviceComp},
+		{"Logs", logComp},
 	}
 
 	return app

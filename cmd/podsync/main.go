@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/BetaLixT/podsync"
 	"github.com/BetaLixT/podsync/internal/config"
 	"github.com/BetaLixT/podsync/internal/db"
 	"github.com/BetaLixT/podsync/internal/gpodder"
@@ -27,7 +28,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := tui.Run(cfg, podcast, device, localDB); err != nil {
+	lgr := podsync.NewLogger()
+	if err := tui.Run(cfg, podcast, device, localDB, lgr); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

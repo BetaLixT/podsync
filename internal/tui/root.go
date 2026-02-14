@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/BetaLixT/podsync"
 	"github.com/BetaLixT/podsync/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -41,6 +42,7 @@ type RootComponent struct {
 	currentSource    PodcastSource
 	childComponents  map[RootContentComponent]Component
 	currentComponent RootContentComponent
+	lgr              podsync.Logger
 }
 
 type InsertMode struct {
@@ -52,6 +54,7 @@ func NewRoot(
 	deviceType Device,
 	sourceType PodcastSource,
 	children map[RootContentComponent]Component,
+	lgr podsync.Logger,
 ) *RootComponent {
 	return &RootComponent{
 		0,               // width
@@ -66,6 +69,7 @@ func NewRoot(
 		sourceType,      // currentSource
 		children,        // childComponents
 		AppRootView,     // currentComponent
+		lgr,             // lgr
 	}
 }
 

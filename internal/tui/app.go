@@ -32,15 +32,21 @@ func sanitizeFilename(name string) string {
 	return string(result)
 }
 
-func Run(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB podsync.PodcastDevice) error {
-	app := NewAppComponent(cfg, podcast, device, localDB, nil)
+func Run(
+	cfg *config.Config,
+	podcast podsync.PodcastSource,
+	device podsync.Device,
+	localDB podsync.PodcastDevice,
+	lgr podsync.Logger,
+) error {
+	app := NewAppComponent(cfg, podcast, device, localDB, nil, lgr)
 	options := NewOptionsComponent(cfg)
 
 	children := map[RootContentComponent]Component{
 		AppRootView:     app,
 		OptionsRootView: options,
 	}
-	root := NewRoot(cfg, IPodRockBoxDevice, GPodderSource, children)
+	root := NewRoot(cfg, IPodRockBoxDevice, GPodderSource, children, lgr)
 
 	// Wire status callback now that root exists
 	app.onStatusUpdate = func(data StatusData) {

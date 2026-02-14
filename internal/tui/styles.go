@@ -54,6 +54,14 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(primaryColor)
 
+	// Logs
+	logInfStyle = lipgloss.NewStyle().
+			Foreground(successColor)
+	logWrnStyle = lipgloss.NewStyle().
+			Foreground(warningColor)
+	logErrStyle = lipgloss.NewStyle().
+			Foreground(errorColor)
+
 	// Status messages
 	statusInfoStyle = lipgloss.NewStyle().
 			Foreground(primaryColor)

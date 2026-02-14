@@ -1,6 +1,8 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 type KeyMap struct {
 	Keys        []string
