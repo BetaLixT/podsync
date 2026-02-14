@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -452,7 +453,8 @@ func (m *Model) syncMarkedEpisodes(episodes []podsync.Episode) tea.Cmd {
 			}
 
 			srcPath := m.gpodder.GetFullPath(ep.DownloadFilename)
-			destPath, err := m.ipod.CopyFile(srcPath, ep.PodcastTitle, ep.DownloadFilename)
+			destFilename := formatEpisodeFilename(ep)
+			destPath, err := m.ipod.CopyFile(srcPath, ep.PodcastTitle, destFilename)
 			if err != nil {
 				continue
 			}
@@ -461,7 +463,7 @@ func (m *Model) syncMarkedEpisodes(episodes []podsync.Episode) tea.Cmd {
 				GPodderEpisodeID: ep.ID,
 				PodcastName:      ep.PodcastTitle,
 				EpisodeTitle:     ep.Title,
-				Filename:         ep.DownloadFilename,
+				Filename:         destFilename,
 				IPodPath:         destPath,
 				Duration:         ep.TotalTime,
 			}
@@ -495,7 +497,8 @@ func (m *Model) syncEpisodes() tea.Cmd {
 			}
 
 			srcPath := m.gpodder.GetFullPath(ep.DownloadFilename)
-			destPath, err := m.ipod.CopyFile(srcPath, ep.PodcastTitle, ep.DownloadFilename)
+			destFilename := formatEpisodeFilename(ep)
+			destPath, err := m.ipod.CopyFile(srcPath, ep.PodcastTitle, destFilename)
 			if err != nil {
 				continue
 			}
@@ -504,7 +507,7 @@ func (m *Model) syncEpisodes() tea.Cmd {
 				GPodderEpisodeID: ep.ID,
 				PodcastName:      ep.PodcastTitle,
 				EpisodeTitle:     ep.Title,
-				Filename:         ep.DownloadFilename,
+				Filename:         destFilename,
 				IPodPath:         destPath,
 				Duration:         ep.TotalTime,
 			}
@@ -721,6 +724,28 @@ func (m Model) renderHelp() string {
 	}
 
 	return keyStyle.Render("q") + helpStyle.Render("/") + keyStyle.Render("Ctrl+C") + helpStyle.Render(" quit")
+}
+
+func formatEpisodeFilename(ep podsync.Episode) string {
+	ext := filepath.Ext(ep.DownloadFilename)
+	published := time.Unix(ep.Published, 0)
+	date := fmt.Sprintf("%02d-%02d", published.Day(), published.Month())
+	title := sanitizeFilename(ep.Title)
+	return fmt.Sprintf("%02d - %s - %s%s", ep.EpisodeNumber, title, date, ext)
+}
+
+func sanitizeFilename(name string) string {
+	result := make([]byte, 0, len(name))
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch c {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|':
+			result = append(result, '_')
+		default:
+			result = append(result, c)
+		}
+	}
+	return string(result)
 }
 
 func Run(cfg *config.Config, podcast podsync.PodcastSource, device podsync.Device, localDB *db.DB) error {

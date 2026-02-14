@@ -87,7 +87,8 @@ func (c *Client) GetEpisodesForPodcast(podcastID int64) ([]podsync.Episode, erro
 			e.download_filename,
 			e.total_time,
 			e.published,
-			e.is_new
+			e.is_new,
+			ROW_NUMBER() OVER (ORDER BY e.published ASC) as episode_number
 		FROM episode e
 		JOIN podcast p ON e.podcast_id = p.id
 		WHERE e.podcast_id = ? AND e.state = 1 AND e.download_filename IS NOT NULL
@@ -103,7 +104,7 @@ func (c *Client) GetEpisodesForPodcast(podcastID int64) ([]podsync.Episode, erro
 	var episodes []podsync.Episode
 	for rows.Next() {
 		var ep podsync.Episode
-		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime, &ep.Published, &ep.IsNew); err != nil {
+		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime, &ep.Published, &ep.IsNew, &ep.EpisodeNumber); err != nil {
 			return nil, err
 		}
 		episodes = append(episodes, ep)
@@ -126,7 +127,8 @@ func (c *Client) GetDownloadedUnplayedEpisodes() ([]podsync.Episode, error) {
 			e.title,
 			e.download_filename,
 			e.total_time,
-			e.published
+			e.published,
+			ROW_NUMBER() OVER (PARTITION BY e.podcast_id ORDER BY e.published ASC) as episode_number
 		FROM episode e
 		JOIN podcast p ON e.podcast_id = p.id
 		WHERE e.state = 1 AND e.is_new = 1 AND e.download_filename IS NOT NULL
@@ -142,7 +144,7 @@ func (c *Client) GetDownloadedUnplayedEpisodes() ([]podsync.Episode, error) {
 	var episodes []podsync.Episode
 	for rows.Next() {
 		var ep podsync.Episode
-		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime, &ep.Published); err != nil {
+		if err := rows.Scan(&ep.ID, &ep.PodcastTitle, &ep.Title, &ep.DownloadFilename, &ep.TotalTime, &ep.Published, &ep.EpisodeNumber); err != nil {
 			return nil, err
 		}
 		episodes = append(episodes, ep)

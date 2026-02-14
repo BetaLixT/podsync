@@ -15,6 +15,7 @@ type Episode struct {
 	TotalTime        int
 	Published        int64
 	IsNew            bool
+	EpisodeNumber    int
 }
 
 type PodcastSource interface {
